@@ -1,0 +1,55 @@
+# Maintainer: James <claude@jamessparkes.com>
+#
+# Zen Browser - Firefox-based browser (prebuilt by the Zen project).
+# Fallback only: CachyOS ships zen-browser-bin in [cachyos]; this is built
+# when no sync repo has it (e.g. plain Arch).
+# Source:   official zen.linux-x86_64.tar.xz from the zen-browser/desktop
+#           GitHub release, repackaged here. The .desktop file and
+#           policies.json next to this PKGBUILD are our own.
+# Verified: pinned sha256 (upstream doesn't sign releases).
+# Updating: bump pkgver to the latest GitHub release, then `updpkgsums`.
+
+pkgname=zen-browser-bin
+pkgver=1.22.3b
+pkgrel=1
+pkgdesc='Performance oriented Firefox-based web browser'
+arch=('x86_64')
+url='https://github.com/zen-browser/desktop'
+license=('MPL-2.0')
+depends=('gtk3' 'libxt' 'mime-types' 'dbus-glib' 'nss' 'ttf-font' 'systemd' 'ffmpeg')
+optdepends=('networkmanager: location detection via available WiFi networks'
+            'libnotify: notification integration'
+            'pulse-native-provider: audio support'
+            'hunspell-en_US: spell checking, American English')
+provides=("zen-browser=$pkgver")
+conflicts=('zen-browser')
+options=('!strip')
+source=("zen-$pkgver-x86_64.tar.xz::$url/releases/download/$pkgver/zen.linux-x86_64.tar.xz"
+        'zen-browser.desktop'
+        'policies.json')
+sha256sums=('0aaee1b3f67f074aebf7fc6c2fe824441bcafd431e9991336479c16370519dd0'
+            'a1065890682e2c7e4115cdc919bf4f330793c4387b7fa861bacb0b1de7c73608'
+            'e977c3d690224dd727d8761d2c0a66ba41bfd02ae0fd7850c4545d06b5a8e63c')
+
+package() {
+    install -dm755 "$pkgdir/opt"
+    cp -r zen "$pkgdir/opt/$pkgname"
+
+    install -dm755 "$pkgdir/usr/bin"
+    ln -s "/opt/$pkgname/zen" "$pkgdir/usr/bin/zen-browser"
+    install -Dm644 zen-browser.desktop -t "$pkgdir/usr/share/applications/"
+
+    for size in 16 32 48 64 128; do
+        install -dm755 "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps"
+        ln -s "/opt/$pkgname/browser/chrome/icons/default/default$size.png" \
+            "$pkgdir/usr/share/icons/hicolor/${size}x${size}/apps/zen-browser.png"
+    done
+
+    # Use the system's dictionaries and CA certificates.
+    ln -Ts /usr/share/hunspell "$pkgdir/opt/$pkgname/dictionaries"
+    ln -Ts /usr/share/hyphen "$pkgdir/opt/$pkgname/hyphenation"
+    ln -sf /usr/lib/libnssckbi.so "$pkgdir/opt/$pkgname/libnssckbi.so"
+
+    # pacman handles updates, so turn off Zen's own updater.
+    install -Dm644 policies.json -t "$pkgdir/opt/$pkgname/distribution/"
+}

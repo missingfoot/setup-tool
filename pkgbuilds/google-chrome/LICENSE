@@ -1,0 +1,11 @@
+Google Chrome is proprietary software from Google LLC, repackaged here
+unmodified from Google's official .deb.
+
+Its use is governed by the Google Chrome and ChromeOS Additional Terms of
+Service and the Google Terms of Service:
+
+  https://www.google.com/chrome/terms/
+  https://policies.google.com/terms
+
+The bundled Widevine CDM's own licence is installed alongside this file as
+WidevineCdm-LICENSE.txt.

@@ -1,0 +1,46 @@
+# Maintainer: James <claude@jamessparkes.com>
+#
+# Sublime Text 4 - text editor (proprietary, prebuilt by Sublime HQ).
+# Source:   official x64 tarball from download.sublimetext.com, repackaged here.
+# Verified: Sublime HQ's GPG signature (keys 1EDDE2CDFC025D17F6DA9EC0ADAE6AD28A8F901A /
+#           EBC733B78AAB352DC773BF857FE2FA12CF6E38F2, from
+#           https://download.sublimetext.com/sublimehq-pub.gpg) was checked by
+#           hand and the tarball's sha256 pinned, so building needs no keyring.
+# Updating: set pkgver to the build number at https://www.sublimetext.com/download,
+#           download the tarball + .asc, `gpg --verify` them, then update sha256sums.
+
+pkgname=sublime-text-4
+pkgver=4213
+pkgrel=1
+pkgdesc='Sophisticated text editor for code, html and prose - stable build (official upstream)'
+arch=('x86_64')
+url='https://www.sublimetext.com/download'
+license=('custom')
+depends=('libpng' 'gtk3')
+conflicts=('sublime-text')
+provides=('sublime-text')
+
+source=("https://download.sublimetext.com/sublime_text_build_${pkgver}_x64.tar.xz")
+sha256sums=('96194272442f89ae15d13a6c9118d7903578b5789ab8874b867558aa6e9145a9')
+
+package() {
+    install -dm755 "${pkgdir}/opt"
+    cp --preserve=mode -r "${srcdir}/sublime_text" "${pkgdir}/opt/sublime_text"
+
+    sed -i -e 's#/opt/sublime_text/sublime_text#/usr/bin/subl#g' \
+        "${pkgdir}/opt/sublime_text/sublime_text.desktop"
+
+    install -dm755 "${pkgdir}/usr/bin"
+    ln -s /opt/sublime_text/sublime_text "${pkgdir}/usr/bin/subl"
+
+    install -dm755 "${pkgdir}/usr/share/applications"
+    install -Dm644 "${pkgdir}/opt/sublime_text/sublime_text.desktop" \
+        "${pkgdir}/usr/share/applications/sublime_text.desktop"
+    rm -f "${pkgdir}/opt/sublime_text/sublime_text.desktop"
+
+    for res in 128x128 16x16 256x256 32x32 48x48; do
+        install -dm755 "${pkgdir}/usr/share/icons/hicolor/${res}/apps"
+        ln -s "/opt/sublime_text/Icon/${res}/sublime-text.png" \
+            "${pkgdir}/usr/share/icons/hicolor/${res}/apps/sublime-text.png"
+    done
+}

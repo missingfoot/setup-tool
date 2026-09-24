@@ -1,0 +1,30 @@
+# Maintainer: James <claude@jamessparkes.com>
+#
+# QDirStat - Qt disk usage visualiser with a WinDirStat-style treemap.
+# Source:   official shundhammer/qdirstat GitHub release tarball, built here.
+# Verified: pinned sha256 (upstream doesn't sign releases).
+# Updating: bump pkgver to the latest GitHub release, then `updpkgsums`.
+
+pkgname=qdirstat
+pkgver=2.0
+pkgrel=1
+pkgdesc='Qt-based directory statistics, from the original KDirStat author'
+arch=('x86_64')
+url='https://github.com/shundhammer/qdirstat'
+license=('GPL-2.0-only')
+depends=('qt6-base' 'qt6-5compat' 'glibc' 'gcc-libs' 'zlib' 'hicolor-icon-theme')
+optdepends=('perl: for the bundled cleanup scripts'
+            'perl-uri: for the bundled cleanup scripts')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/$pkgver.tar.gz")
+sha256sums=('a0b2ba91caf68ec4ee7705d5063bc542ac8aea4d421451103245c69d272bf19f')
+
+build() {
+    cd "$pkgname-$pkgver"
+    qmake6
+    make
+}
+
+package() {
+    cd "$pkgname-$pkgver"
+    make INSTALL_ROOT="$pkgdir/" install
+}

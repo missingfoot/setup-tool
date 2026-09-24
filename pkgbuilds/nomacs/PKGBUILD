@@ -1,0 +1,42 @@
+# Maintainer: James <claude@jamessparkes.com>
+#
+# nomacs - a Qt image viewer.
+# Source:   official nomacs/nomacs GitHub repo at the release tag, built here.
+# Verified: pinned b2sum of the tagged checkout (upstream doesn't sign releases).
+# Updating: bump pkgver to the latest release tag, then `updpkgsums`.
+# epoch=1 because nomacs once changed its version scheme; keep it.
+
+pkgname=nomacs
+pkgver=3.23.3
+pkgrel=1
+epoch=1
+pkgdesc='A Qt image viewer'
+arch=('x86_64')
+url='https://github.com/nomacs/nomacs'
+license=('GPL-3.0-only')
+depends=('exiv2' 'glibc' 'hicolor-icon-theme' 'libgcc' 'libglvnd' 'libraw' 'libstdc++'
+         'libtiff' 'opencv' 'qt6-base' 'qt6-svg' 'quazip-qt6')
+makedepends=('cmake' 'git' 'gtest' 'ninja' 'python' 'qt6-tools' 'vulkan-headers')
+optdepends=('kimageformats: QOI (Quite OK Image Format) support'
+            'qt6-imageformats: additional image formats')
+source=("git+$url.git#tag=$pkgver")
+b2sums=('ef320f1a517a093f66155d5cb860f9828477e7e3dd2ac6abb70fca186e0d0204b4cf742831d5b443d39578b1ebb26906c6590872040690e8654584a67f56bf96')
+
+build() {
+    export LANG=C.UTF-8 LC_ALL=C.UTF-8
+    cmake -B build -S nomacs/ImageLounge -G Ninja -Wno-dev \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DQT_VERSION_MAJOR=6 \
+        -DENABLE_QUAZIP=ON \
+        -DENABLE_TRANSLATIONS=ON
+    cmake --build build
+}
+
+check() {
+    ninja -C build check
+}
+
+package() {
+    DESTDIR="$pkgdir" cmake --install build
+}

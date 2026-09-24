@@ -1,0 +1,59 @@
+# Maintainer: James <claude@jamessparkes.com>
+#
+# 1Password - password manager (proprietary, prebuilt by 1Password).
+# Source:   official tarball from downloads.1password.com, repackaged here.
+# Verified: 1Password's GPG signature (key 3FEF9748469ADBE15DA7CA80AC2D62742012EA22,
+#           from https://downloads.1password.com/linux/keys/1password.asc) was
+#           checked by hand and the tarball's sha256 pinned, so building needs
+#           no keyring.
+# Updating: set _tarver to the latest release, download the tarball + .sig,
+#           `gpg --verify` them, then update sha256sums.
+# pkgrel is 42 only because that's what the first install was; keep bumping it.
+
+pkgname=1password
+_tarver=8.12.36
+pkgver=${_tarver//-/_}
+pkgrel=42
+pkgdesc='Password manager and secure wallet'
+arch=('x86_64')
+url='https://1password.com'
+license=('LicenseRef-1Password-Proprietary')
+depends=('hicolor-icon-theme' 'libgtk-3.so=0' 'nss' 'xdg-utils')
+options=('!strip')
+install=1password.install
+source=("https://downloads.1password.com/linux/tar/stable/x86_64/1password-$_tarver.x64.tar.gz")
+sha256sums=('393c93c8025fee5dda76a4d0f1e478e98526cc946e58a22efe26f540ea2b5729')
+
+package() {
+    cd "1password-$_tarver.x64"
+
+    for size in 32x32 64x64 256x256 512x512; do
+        install -Dm644 "resources/icons/hicolor/$size/apps/1password.png" \
+            "$pkgdir/usr/share/icons/hicolor/$size/apps/1password.png"
+    done
+    install -Dm644 resources/com.onepassword.OnePassword.desktop -t "$pkgdir/usr/share/applications/"
+    install -Dm644 resources/custom_allowed_browsers -t "$pkgdir/usr/share/doc/1password/examples/"
+
+    # Polkit policy letting local users (UID >= 1000, first 10) unlock with
+    # system auth - the same template expansion 1Password's own
+    # install_biometrics_policy.sh does.
+    POLICY_OWNERS="$(cut -d: -f1,3 /etc/passwd | grep -E ':[0-9]{4}$' | cut -d: -f1 | head -n 10 | sed 's/^/unix-user:/' | tr '\n' ' ')"
+    export POLICY_OWNERS
+    eval "cat <<EOF
+$(cat com.1password.1Password.policy.tpl)
+EOF" > com.1password.1Password.policy
+    install -Dm644 com.1password.1Password.policy -t "$pkgdir/usr/share/polkit-1/actions/"
+
+    cd "$srcdir"
+    install -dm755 "$pkgdir/opt"
+    mv "1password-$_tarver.x64" "$pkgdir/opt/1Password"
+    rm "$pkgdir"/opt/1Password/com.1password.1Password.policy{,.tpl} \
+       "$pkgdir/opt/1Password/install_biometrics_policy.sh" \
+       "$pkgdir/opt/1Password/resources/com.onepassword.OnePassword.desktop" \
+       "$pkgdir/opt/1Password/resources/custom_allowed_browsers"
+    rm -r "$pkgdir/opt/1Password/resources/icons"
+
+    install -dm755 "$pkgdir/usr/bin"
+    ln -s /opt/1Password/1password "$pkgdir/usr/bin/1password"
+    chmod 4755 "$pkgdir/opt/1Password/chrome-sandbox"
+}

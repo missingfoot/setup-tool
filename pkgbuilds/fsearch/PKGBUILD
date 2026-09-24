@@ -1,0 +1,31 @@
+# Maintainer: James <claude@jamessparkes.com>
+#
+# FSearch - a fast graphical file search utility.
+# Source:   official cboxdoerfer/fsearch GitHub release tarball, built here.
+# Verified: pinned sha256 (upstream doesn't sign releases).
+# Updating: bump pkgver to the latest GitHub release, then `updpkgsums`.
+
+pkgname=fsearch
+pkgver=0.3.2
+pkgrel=1
+pkgdesc='A fast graphical file search utility'
+arch=('x86_64')
+url='https://github.com/cboxdoerfer/fsearch'
+license=('GPL-2.0-or-later')
+depends=('gtk3' 'icu' 'pcre2')
+makedepends=('glib2-devel' 'itstool' 'meson')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/$pkgver.tar.gz")
+sha256sums=('2c9bc7de9ac1ba72232cb4d66a750fe04210fdae96273f04316b6616fc098308')
+
+build() {
+    arch-meson "$pkgname-$pkgver" build -Dchannel=other
+    meson compile -C build
+}
+
+check() {
+    meson test -C build
+}
+
+package() {
+    meson install -C build --destdir "$pkgdir"
+}

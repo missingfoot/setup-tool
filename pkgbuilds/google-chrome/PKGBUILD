@@ -1,0 +1,55 @@
+# Maintainer: James <claude@jamessparkes.com>
+#
+# Google Chrome - stable channel (proprietary, prebuilt by Google).
+# Source:   official .deb from dl.google.com, repackaged here.
+# Verified: pinned sha512. Google only signs its apt repo's Release file,
+#           not individual .debs, so there's no detached signature to check.
+# Updating: set pkgver to the current stable version (see
+#           https://chromereleases.googleblog.com), then `updpkgsums`.
+
+pkgname=google-chrome
+pkgver=153.0.8010.52
+pkgrel=1
+pkgdesc='The popular web browser by Google (Stable Channel)'
+arch=('x86_64')
+url='https://www.google.com/chrome'
+license=('LicenseRef-Google-Chrome')
+depends=('alsa-lib' 'gtk3' 'libcups' 'libxss' 'libxtst' 'nss' 'ttf-liberation' 'xdg-utils')
+optdepends=('pipewire: WebRTC desktop sharing under Wayland'
+            'kdialog: KDE file dialogs'
+            'gnome-keyring: store passwords in GNOME Keyring'
+            'kwallet: store passwords in KWallet')
+options=('!emptydirs' '!strip')
+install=google-chrome.install
+source=('LICENSE'
+        'google-chrome-stable.sh'
+        "https://dl.google.com/linux/chrome/deb/pool/main/g/google-chrome-stable/google-chrome-stable_${pkgver}-1_amd64.deb")
+sha512sums=('5cf7535b4b2923e3271b9dc5a2cd55fc5bf3259f079d555d929f1445dfe33f884f3ce61bd52d608898c6c766375f1f6648ac4fdf00f81a1baa5f4ab1dc9c0de0'
+            '173dd0ad273ccf30e57611b5293995c01056bbc3ab8abdbb11e9efef21fdec435b2d919b07fb6cd4a3c59eb2107b22a60b96fe13255819fbcecef89d83f850b9'
+            '3be99341f606e62aed2ccdecef6a9741b23e77ad1c192385a336820604392fe8317c66f5e25f1053b4af94df8fdc785b03c25b6f43151b1651ce1e677828e3d7')
+
+package() {
+    bsdtar -xf data.tar.xz -C "$pkgdir/"
+
+    # Launcher that reads extra flags from ~/.config/chrome-flags.conf
+    install -m755 google-chrome-stable.sh "$pkgdir/usr/bin/google-chrome-stable"
+
+    for size in 16x16 24x24 32x32 48x48 64x64 128x128 256x256; do
+        install -Dm644 "$pkgdir/opt/google/chrome/product_logo_${size%x*}.png" \
+            "$pkgdir/usr/share/icons/hicolor/$size/apps/google-chrome.png"
+    done
+
+    install -Dm644 LICENSE -t "$pkgdir/usr/share/licenses/$pkgname/"
+    install -Dm644 "$pkgdir/opt/google/chrome/WidevineCdm/LICENSE" \
+        "$pkgdir/usr/share/licenses/$pkgname/WidevineCdm-LICENSE.txt"
+
+    sed -i \
+        -e '/Exec=/i\StartupWMClass=Google-chrome' \
+        -e 's/x-scheme-handler\/ftp;\?//g' \
+        "$pkgdir/usr/share/applications/google-chrome.desktop"
+
+    # Debian-only bits: the cron job re-adds Google's apt repo; pacman
+    # handles updates here.
+    rm -r "$pkgdir/etc/cron.daily" "$pkgdir/opt/google/chrome/cron"
+    rm "$pkgdir"/opt/google/chrome/product_logo_*.png
+}

@@ -1,0 +1,48 @@
+# Maintainer: James <claude@jamessparkes.com>
+#
+# Helium - private, Chromium-based browser (prebuilt by imput).
+# Fallback only: CachyOS ships helium-browser-bin in [cachyos]; this is
+# built when no sync repo has it (e.g. plain Arch).
+# Source:   official x86_64 Linux tarball from the imputnet/helium-linux
+#           GitHub release, repackaged here using upstream's own wrapper
+#           script and .desktop file unmodified.
+# Verified: upstream's GPG signature (key BE677C1989D35EAB2C5F26C9351601AD01D6378E,
+#           published as pubkey.asc in imputnet/helium-linux) was checked by
+#           hand and the tarball's sha256 pinned, so building needs no keyring.
+# Updating: bump pkgver, download the tarball + .asc, `gpg --verify` them,
+#           then update sha256sums.
+
+pkgname=helium-browser-bin
+_pkgname=helium
+pkgver=0.18.1.1
+pkgrel=1
+pkgdesc='Private, fast, and honest web browser based on Chromium'
+arch=('x86_64')
+url='https://github.com/imputnet/helium-linux'
+license=('GPL-3.0-only AND BSD-3-Clause')
+depends=('alsa-lib' 'dbus' 'gtk3' 'hicolor-icon-theme' 'libcups' 'libpulse' 'libva'
+         'libxss' 'nss' 'ttf-liberation' 'udev' 'xdg-utils')
+optdepends=('pipewire: WebRTC desktop sharing under Wayland'
+            'kdialog: native file dialogs in Plasma'
+            'kwallet: store passwords in KWallet'
+            'org.freedesktop.secrets: store passwords with GNOME Keyring / KeePassXC')
+options=('!strip')
+_tarball="$_pkgname-$pkgver-x86_64_linux"
+source=("$_tarball.tar.xz::$url/releases/download/$pkgver/$_tarball.tar.xz"
+        "LICENSE.ungoogled_chromium-$pkgver::https://raw.githubusercontent.com/imputnet/helium-linux/$pkgver/LICENSE.ungoogled_chromium")
+sha256sums=('9f4d35239eea18b290846221874265ac2a8637adff954df69fdef77d6b15042c'
+            '9539b394e4179952698894bd62ef6566b6804ab0ff360dcf3a511cfaf7f78c4d')
+
+package() {
+    install -dm755 "$pkgdir/opt/$pkgname"
+    cp -a "$_tarball/." "$pkgdir/opt/$pkgname/"
+
+    install -dm755 "$pkgdir/usr/bin"
+    ln -s "/opt/$pkgname/helium-wrapper" "$pkgdir/usr/bin/$_pkgname"
+    install -Dm644 "$_tarball/helium.desktop" -t "$pkgdir/usr/share/applications/"
+    install -Dm644 "$_tarball/product_logo_256.png" \
+        "$pkgdir/usr/share/icons/hicolor/256x256/apps/$_pkgname.png"
+
+    install -Dm644 "LICENSE.ungoogled_chromium-$pkgver" \
+        "$pkgdir/usr/share/licenses/$pkgname/LICENSE.ungoogled_chromium"
+}

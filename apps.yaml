@@ -1,0 +1,223 @@
+# The app list for Setup Tool. Add/edit entries here - no code changes
+# needed. Each entry:
+#
+#   id:          unique slug, also used as the build-dir name
+#   name:        shown in the checklist
+#   category:    groups entries into sections in the UI
+#   description: shown as a tooltip
+#   method:      "pacman" (plain official-repo install) or "pkgbuild"
+#                (build+install a PKGBUILD - AUR replacements or your own apps)
+#   package:     pacman method only - the package name
+#   source:      pkgbuild method only - dir (relative to this file) holding
+#                the PKGBUILD, used when it's bundled here in pkgbuilds/
+#   git:         pkgbuild method only - a git remote to clone instead of
+#                `source`, for your own separately-hosted project repos
+#   services:    optional - systemd units to `systemctl enable --now` after
+#                install (in the same single password prompt as the install)
+#   fallback:    pacman method only, optional - dir holding a bundled
+#                PKGBUILD to build instead when no sync repo has `package`
+#                (e.g. [cachyos]-only packages on plain Arch). Without one,
+#                such apps show as Unavailable.
+#   next_steps:  optional - manual follow-up (logins etc.) shown after a
+#                successful run, for things the tool can't do for you
+
+- id: sublime-text-4
+  name: Sublime Text 4
+  category: Editors
+  description: Sophisticated text editor for code, html and prose
+  method: pkgbuild
+  source: pkgbuilds/sublime-text-4
+
+- id: zed
+  name: Zed
+  category: Editors
+  description: A high-performance, multiplayer code editor from the creators of Atom and Tree-sitter
+  method: pacman
+  package: zed
+
+- id: ghostty
+  name: Ghostty
+  category: Terminals
+  description: Fast, native, feature-rich terminal emulator pushing modern features
+  method: pacman
+  package: ghostty
+
+- id: 1password
+  name: 1Password
+  category: Utilities
+  description: Password manager and secure wallet
+  method: pkgbuild
+  source: pkgbuilds/1password
+
+- id: mpc-qt
+  name: MPC-QT
+  category: Media
+  description: A clone of Media Player Classic reimplemented in Qt
+  method: pkgbuild
+  source: pkgbuilds/mpc-qt
+
+- id: nomacs
+  name: nomacs
+  category: Media
+  description: A Qt image viewer
+  method: pkgbuild
+  source: pkgbuilds/nomacs
+
+- id: smplayer
+  name: SMPlayer
+  category: Media
+  description: Media player with built-in codecs, based on mpv/mplayer
+  method: pacman
+  package: smplayer
+
+- id: vlc
+  name: VLC
+  category: Media
+  description: Free and open source cross-platform multimedia player and framework
+  method: pacman
+  package: vlc
+
+- id: helium-browser-bin
+  name: Helium Browser
+  category: Browsers
+  description: Private, fast, and honest web browser based on Chromium
+  method: pacman
+  package: helium-browser-bin
+  fallback: pkgbuilds/helium-browser-bin
+
+- id: vivaldi
+  name: Vivaldi
+  category: Browsers
+  description: An advanced browser made with the power user in mind
+  method: pacman
+  package: vivaldi
+
+- id: zen-browser-bin
+  name: Zen Browser
+  category: Browsers
+  description: Performance oriented Firefox-based web browser
+  method: pacman
+  package: zen-browser-bin
+  fallback: pkgbuilds/zen-browser-bin
+
+- id: google-chrome
+  name: Google Chrome
+  category: Browsers
+  description: The popular web browser by Google (Stable Channel)
+  method: pkgbuild
+  source: pkgbuilds/google-chrome
+
+- id: thunderbird
+  name: Thunderbird
+  category: Communication
+  description: Standalone mail and news reader from mozilla.org
+  method: pacman
+  package: thunderbird
+
+- id: telegram-desktop
+  name: Telegram
+  category: Communication
+  description: Official Telegram Desktop client
+  method: pacman
+  package: telegram-desktop
+
+- id: tailscale
+  name: Tailscale
+  category: Networking
+  description: Mesh VPN that connects your devices (CLI + daemon, no GUI)
+  method: pacman
+  package: tailscale
+  services: [tailscaled.service]
+  next_steps: |
+    sudo tailscale up      # prints a link - open it to log in
+
+- id: mullvad-vpn
+  name: Mullvad VPN
+  category: Networking
+  description: Mullvad VPN desktop app (log in from the app itself)
+  method: pacman
+  package: mullvad-vpn
+  services: [mullvad-daemon.service]
+
+- id: blender
+  name: Blender
+  category: Creative
+  description: A fully integrated 3D graphics creation suite
+  method: pacman
+  package: blender
+
+- id: onlyoffice-bin
+  name: OnlyOffice
+  category: Productivity
+  description: An office suite that combines text, spreadsheet and presentation editors
+  method: pacman
+  package: onlyoffice-bin
+  fallback: pkgbuilds/onlyoffice-bin
+
+- id: prismlauncher
+  name: Prism Launcher
+  category: Gaming
+  description: Minecraft launcher with ability to manage multiple instances
+  method: pacman
+  package: prismlauncher
+
+- id: fsearch
+  name: FSearch
+  category: Utilities
+  description: A fast graphical file search utility
+  method: pkgbuild
+  source: pkgbuilds/fsearch
+
+- id: qdirstat
+  name: QDirStat
+  category: Utilities
+  description: Qt disk usage visualiser with a WinDirStat-style treemap
+  method: pkgbuild
+  source: pkgbuilds/qdirstat
+
+- id: okular
+  name: Okular
+  category: Productivity
+  description: Document viewer
+  method: pacman
+  package: okular
+
+- id: ttf-ms-fonts
+  name: Microsoft Core Fonts
+  category: Fonts
+  description: Core TTF fonts from Microsoft (Arial, Times New Roman, etc.)
+  method: pkgbuild
+  source: pkgbuilds/ttf-ms-fonts
+
+- id: inter-font
+  name: Inter
+  category: Fonts
+  description: A typeface specially designed for user interfaces
+  method: pacman
+  package: inter-font
+
+# Your own apps go here once their repos are pushed somewhere this machine
+# can `git clone` from (GitHub/GitLab/etc.) - fill in `git:` and uncomment.
+# Their own PKGBUILDs already build entirely from the checked-out repo, so
+# no `source:` entry is needed here.
+#
+# - id: clipcut
+#   name: ClipCut
+#   category: My Apps
+#   description: Quick drag-and-drop video trim/crop tool
+#   method: pkgbuild
+#   git: <your remote URL>
+#
+# - id: file-sifter
+#   name: File Sifter
+#   category: My Apps
+#   description: Sort a folder of media into destinations by hotkey
+#   method: pkgbuild
+#   git: <your remote URL>
+#
+# - id: mediaconvert
+#   name: MediaConvert
+#   category: My Apps
+#   description: Drag-and-drop image/video/audio format conversion
+#   method: pkgbuild
+#   git: <your remote URL>

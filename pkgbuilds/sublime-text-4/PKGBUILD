@@ -11,7 +11,7 @@
 
 pkgname=sublime-text-4
 pkgver=4213
-pkgrel=1
+pkgrel=2
 pkgdesc='Sophisticated text editor for code, html and prose - stable build (official upstream)'
 arch=('x86_64')
 url='https://www.sublimetext.com/download'
@@ -27,11 +27,19 @@ package() {
     install -dm755 "${pkgdir}/opt"
     cp --preserve=mode -r "${srcdir}/sublime_text" "${pkgdir}/opt/sublime_text"
 
+    # Sublime names its window (Wayland app_id / WM_CLASS) after argv[0], so a
+    # plain symlink gives "subl", which matches no .desktop file: no taskbar
+    # icon, and people end up adding a second launcher. A wrapper that execs
+    # the real binary keeps it "sublime_text", matching sublime_text.desktop.
     sed -i -e 's#/opt/sublime_text/sublime_text#/usr/bin/subl#g' \
+        -e '/^StartupNotify=/a StartupWMClass=sublime_text' \
+        -e 's/^Categories=.*/Categories=Development;/' \
         "${pkgdir}/opt/sublime_text/sublime_text.desktop"
 
     install -dm755 "${pkgdir}/usr/bin"
-    ln -s /opt/sublime_text/sublime_text "${pkgdir}/usr/bin/subl"
+    printf '#!/bin/sh\nexec /opt/sublime_text/sublime_text "$@"\n' \
+        > "${pkgdir}/usr/bin/subl"
+    chmod 755 "${pkgdir}/usr/bin/subl"
 
     install -dm755 "${pkgdir}/usr/share/applications"
     install -Dm644 "${pkgdir}/opt/sublime_text/sublime_text.desktop" \

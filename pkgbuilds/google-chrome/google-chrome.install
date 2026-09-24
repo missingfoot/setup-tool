@@ -1,0 +1,3 @@
+post_install() {
+    echo "==> The launcher is 'google-chrome-stable'. Extra flags go in ~/.config/chrome-flags.conf"
+}

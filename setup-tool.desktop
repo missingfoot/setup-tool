@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Setup Tool
+Comment=Check the apps you want, install them all
+Exec=setup-tool
+Icon=apper
+Terminal=false
+Categories=Utility;System;

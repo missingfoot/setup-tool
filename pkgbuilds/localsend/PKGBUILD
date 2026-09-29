@@ -1,0 +1,30 @@
+# LocalSend - share files with nearby devices over the local network, an
+# open source AirDrop alternative (prebuilt Flutter app by the LocalSend project).
+# Fallback only: CachyOS ships localsend in [cachyos]; this is built when no
+# sync repo has it (e.g. plain Arch).
+# Source:   official linux-x86-64 .deb from the localsend/localsend GitHub
+#           release, repackaged here.
+# Verified: pinned sha256, matching the digest GitHub lists for the release
+#           asset (upstream doesn't sign releases).
+# Updating: bump pkgver to the latest GitHub release, then `updpkgsums` and
+#           check the new sum against the release asset's digest.
+
+pkgname=localsend
+pkgver=1.18.2
+pkgrel=1
+pkgdesc='Share files to nearby devices, an open source AirDrop alternative'
+arch=('x86_64')
+url='https://github.com/localsend/localsend'
+license=('Apache-2.0')
+depends=('gtk3' 'libayatana-appindicator' 'xdg-user-dirs')
+options=('!strip' '!debug')
+source=("$url/releases/download/v$pkgver/LocalSend-$pkgver-linux-x86-64.deb")
+sha256sums=('cc42a4f3eacdcb25ec31f0016b1272acb003145ab30484db8965450e20c72cd2')
+
+package() {
+    bsdtar -xf data.tar.zst -C "$pkgdir/"
+
+    # What upstream's postinst does.
+    install -dm755 "$pkgdir/usr/bin"
+    ln -s /opt/localsend_app/localsend_app "$pkgdir/usr/bin/localsend_app"
+}

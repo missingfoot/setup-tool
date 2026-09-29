@@ -71,3 +71,60 @@ def test_missing_build_deps_installed_before_building(runner, monkeypatch):
     assert "--asdeps --noconfirm dep-of-qdirstat dep-of-fsearch" in deps_script
     assert "pacman -U" in final_script
     assert runner.finished
+
+
+def test_installed_app_still_gets_missing_extras(runner, monkeypatch):
+    monkeypatch.setattr(inst, "is_installed", lambda app: True)
+    monkeypatch.setattr(inst, "missing_deps", lambda deps: [d for d in deps if d != "ffmpeg"])
+    app = AppEntry(id="yt-dlp", name="yt-dlp", category="C", description="", method="pacman",
+                   package="yt-dlp", extras=("ffmpeg", "aria2"))
+    finished = []
+    runner.app_finished.connect(lambda app_id, ok: finished.append(app_id))
+    runner.run([app, _repo("vlc")])
+    prompts = [e[1] for e in runner.events if e[0] == "pkexec"]
+    assert prompts == ["pacman -Syu --needed --noconfirm && pacman -S --needed --asdeps --noconfirm aria2"]
+    # vlc was done up front; yt-dlp waited for the privileged step
+    assert finished == ["vlc", "yt-dlp"]
+
+
+def _script(id, tmp_path):
+    return AppEntry(id=id, name=id, category="C", description="", method="script",
+                    script="https://example.com/install.sh", creates=str(tmp_path / "bin" / id))
+
+
+def test_script_app_runs_installer_as_user_without_pkexec(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(inst, "is_installed", lambda app: app.method == "script" and app.creates_path.exists())
+    app = _script("claude", tmp_path)
+    ran = []
+
+    def fake_command(command, cwd, on_finished):
+        ran.append(command[0])
+        if command[0] == "bash":  # the installer creates its file
+            app.creates_path.parent.mkdir(parents=True, exist_ok=True)
+            app.creates_path.write_text("")
+        on_finished(command, 0, OK)
+
+    monkeypatch.setattr(runner, "_run_command", fake_command)
+    finished = []
+    runner.app_finished.connect(lambda app_id, ok: finished.append((app_id, ok)))
+    runner.run([app])
+    assert ran == ["rm", "mkdir", "curl", "bash"]
+    assert not [e for e in runner.events if e[0] == "pkexec"]
+    assert finished == [("claude", True)] and runner.finished
+
+
+def test_script_app_already_installed_is_skipped(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(inst, "is_installed", lambda app: True)
+    ran = []
+    monkeypatch.setattr(runner, "_run_command", lambda c, cwd, on_finished: ran.append(c))
+    runner.run([_script("claude", tmp_path)])
+    assert ran == [] and runner.finished
+
+
+def test_script_app_fails_if_installer_creates_nothing(runner, monkeypatch, tmp_path):
+    monkeypatch.setattr(inst, "is_installed", lambda app: False)
+    monkeypatch.setattr(runner, "_run_command", lambda c, cwd, on_finished: on_finished(c, 0, OK))
+    finished = []
+    runner.app_finished.connect(lambda app_id, ok: finished.append((app_id, ok)))
+    runner.run([_script("claude", tmp_path)])
+    assert finished == [("claude", False)]

@@ -1,0 +1,36 @@
+# Slack - team chat desktop client (proprietary, prebuilt by Slack).
+# Source:   official .deb from downloads.slack-edge.com, repackaged here.
+# Verified: the .deb's sha256 matches its entry in Slack's apt repo index
+#           (packagecloud.io/slacktechnologies/slack, dists/jessie), whose
+#           InRelease is GPG-signed by DB085A08CA13B8ACB917E0F6D938EC0D038651BD
+#           (key from https://packagecloud.io/slacktechnologies/slack/gpgkey).
+#           Checked by hand and the sha256 pinned, so building needs no keyring.
+# Updating: set pkgver to the newest version at
+#           https://slack.com/release-notes/linux, download the .deb plus the
+#           repo's InRelease and main/binary-amd64/Packages, `gpg --verify`
+#           InRelease, check Packages' and the .deb's sha256 against it, then
+#           update sha256sums.
+
+pkgname=slack-desktop
+pkgver=4.52.162
+pkgrel=1
+pkgdesc='Slack desktop client for team chat, calls and file sharing'
+arch=('x86_64')
+url='https://slack.com/downloads/linux'
+license=('LicenseRef-Slack')
+depends=('alsa-lib' 'at-spi2-core' 'gtk3' 'libcups' 'libnotify' 'libsecret' 'libxss' 'libxtst' 'mesa' 'nss'
+         'util-linux-libs' 'xdg-utils')
+options=('!strip' '!debug')
+source=("https://downloads.slack-edge.com/desktop-releases/linux/x64/${pkgver}/slack-desktop-${pkgver}-amd64.deb")
+sha256sums=('5a1973ac9666889207787bf0e5330b62c6deddc3632ee6fcd3ece8c5eb823472')
+
+package() {
+    bsdtar -xf data.tar.xz -C "$pkgdir/"
+
+    # Debian-only bits: the cron job re-adds Slack's apt repo; pacman
+    # handles updates here.
+    rm -r "$pkgdir/etc" "$pkgdir/usr/share/lintian"
+
+    install -dm755 "$pkgdir/usr/share/licenses/$pkgname"
+    ln -s /usr/lib/slack/LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

@@ -7,7 +7,7 @@ import subprocess
 from html import escape
 from pathlib import Path
 
-from .installer import installed_version, pkgbuild_url
+from .installer import pkgbuild_url
 from .manifest import AppEntry
 
 # Anything bigger than this in a PKGBUILD dir isn't something to read inline.
@@ -16,16 +16,24 @@ MAX_FILE_BYTES = 200_000
 PLACEHOLDER = "<p><i>Select an app to see what installing it does, and review its PKGBUILD.</i></p>"
 
 
-def repo_info(package: str) -> dict[str, str]:
-    """A few `pacman -Si` fields for a sync-repo package ({} if unknown)."""
-    result = subprocess.run(["pacman", "-Si", package], capture_output=True, text=True)
-    info: dict[str, str] = {}
-    for line in result.stdout.splitlines():
-        key, sep, value = line.partition(" : ")
-        key = key.strip()
-        if sep and key not in info:  # first entry = the repo pacman would use
-            info[key] = value.strip()
-    return info
+def repo_infos(packages: list[str]) -> dict[str, dict[str, str]]:
+    """A few `pacman -Si` fields per sync-repo package, all in one call
+    (pacman -Si costs ~0.3s however many names it's given). Unknown
+    packages are left out."""
+    if not packages:
+        return {}
+    result = subprocess.run(["pacman", "-Si", *packages], capture_output=True, text=True)
+    infos: dict[str, dict[str, str]] = {}
+    for block in result.stdout.split("\n\n"):
+        info: dict[str, str] = {}
+        for line in block.splitlines():
+            key, sep, value = line.partition(" : ")
+            if sep:
+                info.setdefault(key.strip(), value.strip())
+        name = info.get("Name")
+        if name and name not in infos:  # first entry = the repo pacman would use
+            infos[name] = info
+    return infos
 
 
 def _files_html(folder: Path) -> str:
@@ -54,10 +62,18 @@ def _code(text: str) -> str:
     return f"<code>{escape(text)}</code>"
 
 
-def details_html(app: AppEntry, repo_root: Path, repos: dict[str, str]) -> str:
+def details_html(
+    app: AppEntry,
+    repo_root: Path,
+    repos: dict[str, str],
+    installed: str | None = None,
+    info: dict[str, str] | None = None,
+) -> str:
+    """`installed` is the installed version (None if not installed) and `info`
+    the app's repo_infos() entry; both come from the caller's cache, since
+    this runs on every row click."""
     parts = [f"<h2>{escape(app.name)}</h2><p>{escape(app.description)}</p>"]
     facts: list[tuple[str, str]] = []
-    installed = installed_version(app)
     facts.append(("Installed", escape(installed) if installed else "no"))
 
     parts.append("<h3>What Run does</h3><ul>")
@@ -73,11 +89,16 @@ def details_html(app: AppEntry, repo_root: Path, repos: dict[str, str]) -> str:
                 f"<li>Installs {_code(app.package)} from the official <b>{escape(repo)}</b> repo with "
                 f"{_code('pacman -Syu --needed ' + app.package)} (this also upgrades the system).</li>"
             )
-            info = repo_info(app.package)
             for key in ("Version", "URL", "Licenses", "Packager", "Build Date"):
-                if key in info:
+                if info and key in info:
                     facts.append((f"Repo {key.lower()}" if key == "Version" else key,
                                   _link(info[key]) if key == "URL" else escape(info[key])))
+    elif app.method == "script":
+        parts.append(
+            f"<li>Downloads the vendor's own installer, {_link(app.script)}, and runs it as your user "
+            "(never as root). It installs into your home folder and keeps itself updated, so "
+            "Run skips it once it's installed.</li>"
+        )
     elif app.git:
         parts.append(
             f"<li>Clones {_link(app.git)} and builds its PKGBUILD as your user with "
@@ -99,6 +120,12 @@ def details_html(app: AppEntry, repo_root: Path, repos: dict[str, str]) -> str:
         url = pkgbuild_url(repo_root / app.source / "PKGBUILD")
         if url:
             facts.append(("Upstream", _link(url)))
+    if app.extras:
+        names = ", ".join(_code(e) for e in app.extras)
+        parts.append(
+            f"<li>Also installs these optional add-ons from the repos, as dependencies: {names}. "
+            "Any already installed are left alone.</li>"
+        )
     if app.services:
         units = ", ".join(_code(u) for u in app.services)
         parts.append(f"<li>Enables and starts {units} ({_code('systemctl enable --now')}).</li>")

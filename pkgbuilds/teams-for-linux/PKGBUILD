@@ -1,0 +1,35 @@
+# Teams for Linux - unofficial Microsoft Teams client (Electron wrapper of
+# the Teams web app, prebuilt by the teams-for-linux project).
+# Fallback only: CachyOS ships teams-for-linux in [cachyos]; this is built
+# when no sync repo has it (e.g. plain Arch).
+# Source:   official amd64 .deb from the IsmaelMartinez/teams-for-linux
+#           GitHub release, repackaged here.
+# Verified: pinned sha256, matching the digest GitHub lists for the release
+#           asset (upstream doesn't sign releases).
+# Updating: bump pkgver to the latest GitHub release, then `updpkgsums` and
+#           check the new sum against the release asset's digest.
+
+pkgname=teams-for-linux
+pkgver=2.22.0
+pkgrel=1
+pkgdesc='Unofficial Microsoft Teams client for Linux'
+arch=('x86_64')
+url='https://github.com/IsmaelMartinez/teams-for-linux'
+license=('GPL-3.0-only')
+depends=('alsa-lib' 'at-spi2-core' 'gtk3' 'libcups' 'libnotify' 'libsecret' 'libxss' 'libxtst'
+         'mesa' 'nss' 'util-linux-libs' 'xdg-utils')
+optdepends=('libfido2: WebAuthn with FIDO2 devices')
+options=('!strip' '!debug')
+source=("$url/releases/download/v$pkgver/teams-for-linux_${pkgver}_amd64.deb")
+sha256sums=('b8eb06ff669e83c2e27efe522328dc6d1545a08afbe6e5399c8ec8b5c2da3d3f')
+
+package() {
+    bsdtar -xf data.tar.xz -C "$pkgdir/"
+    rm -r "$pkgdir/usr/share/doc"
+
+    # What upstream's postinst does on a system with user namespaces (Arch):
+    # a /usr/bin link, and no setuid sandbox helper.
+    install -dm755 "$pkgdir/usr/bin"
+    ln -s /opt/teams-for-linux/teams-for-linux "$pkgdir/usr/bin/teams-for-linux"
+    chmod 755 "$pkgdir/opt/teams-for-linux/chrome-sandbox"
+}

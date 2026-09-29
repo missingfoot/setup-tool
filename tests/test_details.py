@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from setuptoollib.details import details_html
+from setuptoollib.details import details_html, repo_infos
 from setuptoollib.manifest import AppEntry, resolve_fallback
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -21,8 +21,9 @@ def test_bundled_pkgbuild_shows_all_files_escaped(tmp_path):
 def test_repo_app_says_which_repo_and_services():
     app = AppEntry(id="p", name="P", category="C", description="", method="pacman",
                    package="pacman", services=("x.service",))
-    html = details_html(app, REPO_ROOT, {"pacman": "core"})
+    html = details_html(app, REPO_ROOT, {"pacman": "core"}, "7.0.0-1", {"Version": "7.0.0-1"})
     assert "<b>core</b>" in html
+    assert "Repo version" in html and "7.0.0-1" in html
     assert "pacman -Syu --needed pacman" in html
     assert "x.service" in html
 
@@ -45,3 +46,9 @@ def test_git_app_points_to_repo():
     app = AppEntry(id="g", name="G", category="C", description="", method="pkgbuild", git="https://example.com/g.git")
     html = details_html(app, REPO_ROOT, {})
     assert "https://example.com/g.git" in html and "run time" in html
+
+
+def test_repo_infos_one_call_for_many_skips_unknown():
+    infos = repo_infos(["pacman", "bash", "nope-xyz"])
+    assert set(infos) == {"pacman", "bash"}
+    assert infos["bash"]["Name"] == "bash" and "Version" in infos["bash"]

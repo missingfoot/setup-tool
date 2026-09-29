@@ -13,6 +13,8 @@ def test_load_real_manifest():
     ids = [app.id for app in apps]
     assert "sublime-text-4" in ids
     assert len(ids) == len(set(ids))
+    yt_dlp = next(app for app in apps if app.id == "yt-dlp")
+    assert "ffmpeg" in yt_dlp.extras and isinstance(yt_dlp.extras, tuple)
 
 
 def test_pacman_method_requires_package():
@@ -79,3 +81,15 @@ def test_real_manifest_fallbacks_exist():
     for app in load_apps(REPO_ROOT / "apps.yaml"):
         if app.fallback:
             assert (REPO_ROOT / app.fallback / "PKGBUILD").is_file(), app.id
+
+
+def test_script_method_requires_https_script_and_creates():
+    ok = AppEntry(id="c", name="C", category="C", description="", method="script",
+                  script="https://example.com/install.sh", creates="~/.local/bin/c")
+    assert ok.creates_path == Path.home() / ".local/bin/c"
+    with pytest.raises(ValueError):
+        AppEntry(id="c", name="C", category="C", description="", method="script",
+                 script="https://example.com/install.sh")
+    with pytest.raises(ValueError):
+        AppEntry(id="c", name="C", category="C", description="", method="script",
+                 script="http://example.com/install.sh", creates="~/c")

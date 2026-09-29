@@ -7,6 +7,7 @@ from setuptoollib.installer import (
     running_kernel_modules_missing,
     find_built_package,
     installed_version,
+    installed_versions,
     is_installed,
     pacman_name,
     pkgbuild_target_version,
@@ -101,6 +102,12 @@ def test_installed_version_known_package():
     assert installed_version(AppEntry(id="bash", name="bash", category="C", description="", method="pacman", package="bash")) is not None
 
 
+def test_installed_versions_batches_and_matches_single_lookup():
+    bash = AppEntry(id="bash", name="bash", category="C", description="", method="pacman", package="bash")
+    bogus = AppEntry(id="x", name="x", category="C", description="", method="pacman", package="definitely-not-a-real-package-xyz")
+    assert installed_versions([bash, bogus]) == {"bash": installed_version(bash), "x": None}
+
+
 def test_is_installed_false_for_bogus_package():
     app = AppEntry(id="x", name="x", category="C", description="", method="pacman", package="definitely-not-a-real-package-xyz")
     assert is_installed(app) is False
@@ -141,6 +148,22 @@ def test_privileged_script_enables_services_last():
 def test_privileged_script_services_only():
     # re-running an already-installed app just fixes its service
     assert privileged_script([], [], ["mullvad-daemon.service"]) == "systemctl enable --now mullvad-daemon.service"
+
+
+def test_privileged_script_extras_as_deps_after_apps():
+    script = privileged_script([Path("/b/gallery-dl.pkg.tar.zst")], ["yt-dlp"], [], ["ffmpeg", "aria2"])
+    assert script == (
+        "pacman -Syu --needed --noconfirm yt-dlp"
+        " && pacman -S --needed --asdeps --noconfirm ffmpeg aria2"
+        " && pacman -U --noconfirm /b/gallery-dl.pkg.tar.zst"
+    )
+
+
+def test_privileged_script_extras_only_still_refreshes():
+    # re-running an already-installed app just adds its missing extras
+    assert privileged_script([], [], [], ["aria2"]) == (
+        "pacman -Syu --needed --noconfirm && pacman -S --needed --asdeps --noconfirm aria2"
+    )
 
 
 def test_running_kernel_modules_missing(tmp_path):

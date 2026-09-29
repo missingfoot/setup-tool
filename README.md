@@ -5,7 +5,7 @@ on a fresh machine, check the apps you want and hit **Run Selected**.
 
 ## Adding apps
 
-Edit `apps.yaml` — no code changes needed. Two install methods:
+Edit `apps.yaml` — no code changes needed. Three install methods:
 
 - **`method: pacman`** — a plain sync-repo package (`package: <name>`).
   Optionally `fallback: pkgbuilds/<id>`: a bundled PKGBUILD built instead
@@ -15,9 +15,14 @@ Edit `apps.yaml` — no code changes needed. Two install methods:
 - **`method: pkgbuild`** — build and install a PKGBUILD you maintain. Either:
   - `source: pkgbuilds/<id>` — a PKGBUILD bundled in this repo (AUR
     replacements you've taken over maintaining), or
-  - `git: <url>` — a separately-hosted repo to clone fresh (for your own
-    projects, e.g. clipcut/file-sifter/mediaconvert once they're pushed
-    somewhere this machine can reach).
+  - `git: <url>` — a separately-hosted repo to clone fresh (your own
+    projects, e.g. clipcut/file-sifter/mediaconvert). Use the public
+    `https://` URL so a fresh machine can clone without SSH keys.
+- **`method: script`** — the vendor's own installer, for apps that install
+  into your home folder and update themselves (e.g. Claude Code):
+  `script: <https url>` is downloaded and run as you, never as root, and
+  `creates: <path>` is the file whose existence means it's installed. Only
+  use this for installers published by the app's own vendor.
 
 You are the sole maintainer of everything referenced here — there's no
 per-run auditing, so only add PKGBUILDs you've personally reviewed.
@@ -31,7 +36,7 @@ would inherit that. When packaging something new, write it from upstream's
 own release (an AUR PKGBUILD is fine to *read* for hints, never to copy),
 and derive every checksum from upstream yourself.
 
-- **Header format:** `# Maintainer:` line, then what the app is, `Source:`
+- **Header format:** what the app is, then `Source:`
   (upstream URL, built vs repackaged), `Verified:` (signature/hash and
   where the key comes from) and `Updating:` (how to bump it). Helper files
   (launchers, `.desktop` entries, licence notes) are ours too; prefer

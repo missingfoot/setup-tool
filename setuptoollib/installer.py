@@ -24,6 +24,10 @@ def pacman_name(app: AppEntry) -> str:
 
 
 def installed_version(app: AppEntry) -> str | None:
+    if app.method == "script":
+        # Not a package, so no version to ask pacman for - and these keep
+        # themselves updated anyway.
+        return "yes (updates itself)" if app.creates_path.exists() else None
     result = subprocess.run(
         ["pacman", "-Q", pacman_name(app)],
         capture_output=True,
@@ -34,8 +38,30 @@ def installed_version(app: AppEntry) -> str | None:
     return result.stdout.split()[1]
 
 
+def installed_versions(apps: list[AppEntry]) -> dict[str, str | None]:
+    """installed_version for many apps at once, keyed by app id. One
+    `pacman -Q` for the lot (each call costs ~70ms, which added up to
+    seconds at startup); names it doesn't know are just missing from its
+    output."""
+    names = [pacman_name(app) for app in apps if app.method != "script"]
+    versions: dict[str, str] = {}
+    if names:
+        result = subprocess.run(["pacman", "-Q", *names], capture_output=True, text=True)
+        for line in result.stdout.splitlines():
+            name, _, version = line.partition(" ")
+            versions[name] = version
+    return {
+        app.id: installed_version(app) if app.method == "script" else versions.get(pacman_name(app))
+        for app in apps
+    }
+
+
 def is_installed(app: AppEntry) -> bool:
     return installed_version(app) is not None
+
+
+def missing_extras(app: AppEntry) -> list[str]:
+    return missing_deps(list(app.extras))
 
 
 def service_is_running(unit: str) -> bool:
@@ -120,6 +146,9 @@ def source_label(app: AppEntry, repo_root: Path, repos: dict[str, str]) -> tuple
         if repo is None:
             return "pacman", f"{app.package} - not found in any sync repo"
         return repo, f"Official {repo} repo (pacman package {app.package})"
+    if app.method == "script":
+        host = app.script.split("://", 1)[-1].split("/", 1)[0]
+        return f"Installer · {host}", f"The vendor's own installer ({app.script}), run as your user"
     if app.git:
         return "Git PKGBUILD", f"Own PKGBUILD cloned from {app.git}"
     url = pkgbuild_url(repo_root / app.source / "PKGBUILD")
@@ -148,6 +177,21 @@ def prepare_commands(app: AppEntry, repo_root: Path) -> list[list[str]]:
     return commands
 
 
+def script_commands(app: AppEntry) -> list[list[str]]:
+    """Download the vendor's installer into the build dir, then run it as
+    the user - never root: these install into the home directory. Saved to
+    a file rather than piped into bash, so a failed download can't run half
+    a script."""
+    build_dir = build_dir_for(app)
+    script = str(build_dir / "install.sh")
+    return [
+        ["rm", "-rf", str(build_dir)],
+        ["mkdir", "-p", str(build_dir)],
+        ["curl", "-fsSL", "--proto", "=https", "-o", script, app.script],
+        ["bash", script],
+    ]
+
+
 def makepkg_command() -> list[str]:
     # Never run as root: makepkg refuses to, and this is where each
     # PKGBUILD's own source fetch + verification (e.g. Sublime's GPG check)
@@ -173,19 +217,27 @@ def build_deps_script(pacman_installs: list[str], build_deps: list[str]) -> str:
     return f"{upgrade} && pacman -S --needed --asdeps --noconfirm {deps}"
 
 
-def privileged_script(pkg_files: list[Path], pacman_installs: list[str], services: list[str] = ()) -> str:
+def privileged_script(
+    pkg_files: list[Path], pacman_installs: list[str], services: list[str] = (), extras: list[str] = ()
+) -> str:
     """The single bash script run under pkexec for a whole run.
 
     Repo installs use `-Syu`, never plain `-S`: a stale local sync db points
     at package versions the mirrors have already deleted (404 on download),
     and refreshing with `-Sy` alone would be a partial upgrade, which Arch
     doesn't support. So refreshing means upgrading the whole system too.
-    It runs before `-U` so freshly built packages install against the
+    Extras go in `--asdeps` after the apps themselves: an app picked in the
+    same run keeps its explicit install reason (`--needed` skips it), and
+    the rest turn into orphans once nothing optionally depends on them.
+    It all runs before `-U` so freshly built packages install against the
     upgraded libraries. Services are enabled last, once their packages exist."""
     parts = []
-    if pacman_installs:
+    if pacman_installs or extras:
         names = " ".join(shlex.quote(n) for n in pacman_installs)
-        parts.append(f"pacman -Syu --needed --noconfirm {names}")
+        parts.append(f"pacman -Syu --needed --noconfirm {names}".rstrip())
+    if extras:
+        names = " ".join(shlex.quote(n) for n in extras)
+        parts.append(f"pacman -S --needed --asdeps --noconfirm {names}")
     if pkg_files:
         files = " ".join(shlex.quote(str(p)) for p in pkg_files)
         parts.append(f"pacman -U --noconfirm {files}")
@@ -247,7 +299,8 @@ class InstallRunner(QObject):
     1. Unprivileged, per app: for pkgbuild-method apps, fetch source and
        check the PKGBUILD's version against what's already installed - skip
        the (potentially very slow) build entirely if nothing changed.
-       pacman-method apps just check `pacman -Q`.
+       pacman-method apps just check `pacman -Q`. script-method apps that
+       aren't installed yet run their vendor's installer right here, as the user.
     2. Only if a PKGBUILD still to be built is missing build dependencies
        (a fresh machine, typically): one privileged step installs them, plus
        the run's repo apps - see build_deps_script. Then run makepkg for each.
@@ -279,6 +332,7 @@ class InstallRunner(QObject):
         self._pending_pkg_files: list[Path] = []
         self._pending_pacman_installs: list[str] = []
         self._pending_services: list[str] = []
+        self._pending_extras: list[str] = []
         self._to_build: list[AppEntry] = []
         self._privileged_output: list[str] = []
 
@@ -295,10 +349,15 @@ class InstallRunner(QObject):
         self._pending_services = [
             unit for app in apps for unit in app.services if not service_is_running(unit)
         ]
+        # Likewise extras, so re-running an installed app adds any it lacks.
+        self._pending_extras = list(dict.fromkeys(extra for app in apps for extra in missing_extras(app)))
         self._advance_build_queue()
 
-    def _awaits_services(self, app: AppEntry) -> bool:
-        return any(unit in self._pending_services for unit in app.services)
+    def _awaits_privileged_step(self, app: AppEntry) -> bool:
+        """Installed already, but a service to enable or extras to add remain."""
+        return any(unit in self._pending_services for unit in app.services) or any(
+            extra in self._pending_extras for extra in app.extras
+        )
 
     def _finish_app(self, app_id: str, success: bool) -> None:
         self._resolved.add(app_id)
@@ -315,8 +374,8 @@ class InstallRunner(QObject):
 
         if app.method == "pacman":
             if is_installed(app):
-                if self._awaits_services(app):
-                    self.log.emit(f"[{app.id}] already installed, queued service enable")
+                if self._awaits_privileged_step(app):
+                    self.log.emit(f"[{app.id}] already installed, queued extras / service enable")
                 else:
                     self.log.emit(f"[{app.id}] already installed, skipping")
                     self._finish_app(app.id, True)
@@ -324,6 +383,17 @@ class InstallRunner(QObject):
                 self._pending_pacman_installs.append(app.package)
                 self.log.emit(f"[{app.id}] queued for install")
             self._advance_build_queue()
+            return
+
+        if app.method == "script":
+            if is_installed(app):
+                self.log.emit(f"[{app.id}] already installed (it updates itself), skipping")
+                self._finish_app(app.id, True)
+                self._advance_build_queue()
+                return
+            self._current_commands = script_commands(app)
+            self._current_cwd = build_dir_for(app)
+            self._run_next_prepare_command()
             return
 
         self._current_commands = prepare_commands(app, self._repo_root)
@@ -347,6 +417,13 @@ class InstallRunner(QObject):
 
     def _after_prepare(self) -> None:
         app = self._current_app
+        if app.method == "script":  # the installer has run - nothing to build
+            ok = is_installed(app)
+            if not ok:
+                self.log.emit(f"! installer finished but {app.creates} doesn't exist")
+            self._finish_app(app.id, ok)
+            self._advance_build_queue()
+            return
         build_dir = self._current_cwd
         target = pkgbuild_target_version(build_dir)
         current = installed_version(app)
@@ -354,7 +431,7 @@ class InstallRunner(QObject):
 
         if target and current == target:
             self.log.emit(f"[{app.id}] already up to date ({target}), skipping build")
-            if not self._awaits_services(app):
+            if not self._awaits_privileged_step(app):
                 self._finish_app(app.id, True)
             self._advance_build_queue()
             return
@@ -431,13 +508,15 @@ class InstallRunner(QObject):
         process.start(command[0], command[1:])
 
     def _start_privileged_phase(self) -> None:
-        if not (self._pending_pkg_files or self._pending_pacman_installs or self._pending_services):
+        if not (self._pending_pkg_files or self._pending_pacman_installs or self._pending_services or self._pending_extras):
             self._finish_run()
             return
 
-        script = privileged_script(self._pending_pkg_files, self._pending_pacman_installs, self._pending_services)
+        script = privileged_script(
+            self._pending_pkg_files, self._pending_pacman_installs, self._pending_services, self._pending_extras
+        )
         self.log.emit("--- one privileged step for this run ---")
-        if self._pending_pacman_installs:
+        if self._pending_pacman_installs or self._pending_extras:
             self.log.emit("(repo installs refresh the package database, so this also upgrades the system)")
         self._run_privileged(script, self._on_privileged_finished)
 
@@ -483,7 +562,9 @@ class InstallRunner(QObject):
     def _final_status(self, app: AppEntry) -> bool:
         if not all(service_is_running(unit) for unit in app.services):
             return False
-        if app.method == "pacman":
+        if missing_extras(app):
+            return False
+        if app.method in ("pacman", "script"):
             return is_installed(app)
         target = self._targets.get(app.id)
         version = installed_version(app)

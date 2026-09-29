@@ -1,0 +1,37 @@
+# Zoom Workplace - video meetings client (proprietary, prebuilt by Zoom).
+# Source:   official amd64 .deb from cdn.zoom.us, repackaged here. (Zoom's
+#           own Arch package isn't signed for current versions and depends on
+#           pulseaudio-alsa and ibus, so we use the signed .deb instead.)
+# Verified: the .deb carries a dpkg-sig signature (_gpgbuilder) by Zoom's
+#           key 84C365D6CC9A4886CA926BCC4F2197399706AC24, from
+#           https://zoom.us/linux/download/pubkey; the signature and the
+#           member hashes it lists were checked by hand and the .deb's
+#           sha256 pinned, so building needs no keyring.
+# Updating: set pkgver to the version from
+#           https://zoom.us/rest/download?os=linux, download the .deb,
+#           `gpg --verify _gpgbuilder` and compare its md5/sha1 lines with
+#           the extracted members, then update sha256sums.
+
+pkgname=zoom
+pkgver=7.2.1.5760
+pkgrel=1
+pkgdesc='Zoom Workplace video meetings, chat and phone client'
+arch=('x86_64')
+url='https://zoom.us/download?os=linux'
+license=('LicenseRef-Zoom')
+depends=('alsa-lib' 'at-spi2-core' 'dbus' 'fontconfig' 'freetype2' 'glib2' 'gtk3' 'krb5' 'libatomic'
+         'libcups' 'libdrm' 'libglvnd' 'libgomp' 'libpulse' 'libsm' 'libx11' 'libxcb' 'libxcomposite'
+         'libxi' 'libxkbcommon-x11' 'libxrender' 'libxslt' 'libxtst' 'mesa' 'nss' 'sqlite' 'wayland'
+         'xcb-util-cursor' 'xcb-util-image' 'xcb-util-keysyms' 'xcb-util-renderutil' 'xcb-util-wm')
+options=('!strip' '!debug')
+source=("zoom-${pkgver}_amd64.deb::https://cdn.zoom.us/prod/${pkgver}/zoom_amd64.deb")
+sha256sums=('e9a522c794622633b24908ac0589a8e4df8a542846b97818e76f6c27e117cbdb')
+
+package() {
+    bsdtar -xf data.tar.xz -C "$pkgdir/"
+    rm -r "$pkgdir/usr/share/doc"
+
+    # What upstream's postinst does (its own Arch package does the same):
+    # CEF's sandbox helper is setuid root. The AppArmor part is Ubuntu-only.
+    chmod 4755 "$pkgdir/opt/zoom/cef/chrome_sandbox"
+}

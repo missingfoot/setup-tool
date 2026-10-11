@@ -191,7 +191,22 @@
   package: tailscale
   services: [tailscaled.service]
   next_steps: |
-    sudo tailscale up      # prints a link - open it to log in
+    sudo tailscale up --operator=$USER   # prints a link - open it to log in
+    # Taildrop: received files otherwise sit in tailscaled's state dir until
+    # fetched - this user service saves them straight into ~/Downloads.
+    mkdir -p ~/.config/systemd/user
+    echo '[Unit]
+    Description=Save Taildrop files to ~/Downloads
+    After=network-online.target
+
+    [Service]
+    ExecStart=/usr/bin/tailscale file get --loop --conflict=rename %h/Downloads
+    Restart=always
+    RestartSec=10
+
+    [Install]
+    WantedBy=default.target' > ~/.config/systemd/user/taildrop.service
+    systemctl --user enable --now taildrop.service
 
 - id: mullvad-vpn
   name: Mullvad VPN

@@ -23,6 +23,9 @@ package() {
     cp -r "$startdir/pkgbuilds" "$pkgdir/usr/share/setup-tool/pkgbuilds"
     find "$pkgdir/usr/share/setup-tool/pkgbuilds" -type f -exec chmod 644 {} \;
     find "$pkgdir/usr/share/setup-tool/pkgbuilds" -type d -exec chmod 755 {} \;
+    # pkgver never changes, so the self-updater compares this commit with
+    # GitHub's HEAD instead (see setuptoollib/selfupdate.py).
+    git -C "$startdir" rev-parse HEAD > "$pkgdir/usr/share/setup-tool/commit"
 
     install -Dm644 "$srcdir/setup-tool.desktop" "$pkgdir/usr/share/applications/setup-tool.desktop"
     install -Dm644 "$srcdir/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"

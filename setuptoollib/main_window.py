@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
+import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSettings, Qt
+from PySide6.QtCore import QEvent, QProcess, QSettings, Qt
 from PySide6.QtGui import QColor, QFontDatabase, QGuiApplication, QIcon
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -31,6 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import selfupdate
 from .details import PLACEHOLDER, details_html, repo_infos
 from .installer import InstallRunner, installed_version, installed_versions, source_label, sync_repos
 from .manifest import AppEntry, load_apps, resolve_fallback
@@ -153,6 +156,9 @@ class MainWindow(QMainWindow):
         save_btn.clicked.connect(self._save_selection)
         load_btn.clicked.connect(self._load_selection)
         self._run_btn.clicked.connect(self._on_run_clicked)
+        self._update_btn = QPushButton(QIcon.fromTheme("system-software-update"), "Update Setup Tool")
+        self._update_btn.setToolTip("Check for a newer Setup Tool and install it")
+        self._update_btn.clicked.connect(lambda: self._check_for_update(manual=True))
         self._toggle_panel_btn = QPushButton()
         self._toggle_panel_btn.setIcon(QIcon.fromTheme("sidebar-expand-right-symbolic"))
         self._toggle_panel_btn.setCheckable(True)
@@ -161,6 +167,7 @@ class MainWindow(QMainWindow):
         toolbar.addWidget(select_none_btn)
         toolbar.addWidget(save_btn)
         toolbar.addWidget(load_btn)
+        toolbar.addWidget(self._update_btn)
         toolbar.addStretch()
         toolbar.addWidget(self._run_btn)
         toolbar.addWidget(self._toggle_panel_btn)
@@ -170,6 +177,23 @@ class MainWindow(QMainWindow):
         divider.setFrameShape(QFrame.Shape.HLine)
         divider.setFrameShadow(QFrame.Shadow.Sunken)
         layout.addWidget(divider)
+
+        # Shown when the startup check finds a newer Setup Tool.
+        self._update_banner = QFrame()
+        self._update_banner.setStyleSheet("QFrame { background: palette(alternate-base); }")
+        banner_layout = QHBoxLayout(self._update_banner)
+        banner_layout.setContentsMargins(12, 6, 8, 6)
+        banner_icon = QLabel()
+        banner_icon.setPixmap(QIcon.fromTheme("system-software-update").pixmap(16, 16))
+        banner_layout.addWidget(banner_icon)
+        banner_layout.addWidget(QLabel("A newer Setup Tool is available."))
+        banner_layout.addStretch()
+        self._update_now_btn = QPushButton("Update now")
+        self._update_now_btn.clicked.connect(self._start_update)
+        banner_layout.addWidget(self._update_now_btn)
+        self._update_banner.hide()
+        layout.addWidget(self._update_banner)
+        self._update_chain: selfupdate.CommandChain | None = None
 
         table = self._build_table()
         table.setFrameShape(QFrame.Shape.NoFrame)
@@ -203,6 +227,7 @@ class MainWindow(QMainWindow):
         self._toggle_panel_btn.toggled.connect(self._tabs.setVisible)
         self._toggle_panel_btn.toggled.connect(lambda _: self._save_panel())
         self._set_panel(self._settings.value("window/panel", PANEL_DETAILS))
+        self._check_for_update()
 
     def _build_table(self) -> QTableWidget:
         table = QTableWidget(0, len(COLUMN_HEADERS))
@@ -452,6 +477,7 @@ class MainWindow(QMainWindow):
         if not selected:
             return
         self._run_btn.setEnabled(False)
+        self._set_update_enabled(False)
         self._run_failure = None
         self._run_needs_reboot = False
         self._run_apps = selected
@@ -462,6 +488,7 @@ class MainWindow(QMainWindow):
 
     def _on_run_finished(self) -> None:
         self._run_btn.setEnabled(True)
+        self._set_update_enabled(self._update_chain is None)
         self._log.appendPlainText("--- done ---")
         if self._run_failure:
             self._show_failure(self._run_failure)
@@ -537,6 +564,80 @@ class MainWindow(QMainWindow):
         box.setTextFormat(Qt.TextFormat.PlainText)
         box.setText(explanation)
         box.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        box.show()
+
+    # --- self-update -------------------------------------------------------
+
+    def _set_update_enabled(self, enabled: bool) -> None:
+        self._update_btn.setEnabled(enabled)
+        self._update_now_btn.setEnabled(enabled)
+
+    def _check_for_update(self, manual: bool = False) -> None:
+        """Runs in the background; the startup check (manual=False) stays
+        silent unless there is an update - offline just means no banner."""
+        if self._update_chain is not None:
+            return
+        self._update_btn.setEnabled(False)
+        chain = selfupdate.CommandChain(selfupdate.check_commands(self._repo_root), self)
+        chain.finished.connect(lambda ok, output: self._on_update_checked(ok, output, manual))
+        self._update_chain = chain
+        chain.start()
+
+    def _on_update_checked(self, ok: bool, output: str, manual: bool) -> None:
+        self._update_chain = None
+        self._update_btn.setEnabled(self._run_btn.isEnabled())
+        if not ok:
+            if manual:
+                box = QMessageBox(self)
+                box.setWindowTitle("Couldn't check for updates")
+                box.setIcon(QMessageBox.Icon.Warning)
+                box.setText("Couldn't reach GitHub to check for a newer Setup Tool. Check your internet connection and try again.")
+                box.setDetailedText(output.strip() or None)
+                box.show()
+            return
+        if selfupdate.is_source_checkout(self._repo_root):
+            available = selfupdate.source_update_available(output)
+        else:
+            available = selfupdate.packaged_update_available(
+                selfupdate.packaged_commit(self._repo_root), selfupdate.parse_ls_remote(output)
+            )
+        self._update_banner.setVisible(available)
+        if not manual:
+            return
+        if available:
+            self._start_update()
+        else:
+            QMessageBox.information(self, "Setup Tool", "Setup Tool is up to date.")
+
+    def _start_update(self) -> None:
+        if self._update_chain is not None or not self._run_btn.isEnabled():
+            return
+        self._run_btn.setEnabled(False)
+        self._set_update_enabled(False)
+        self._set_panel(PANEL_LOG)
+        self._log.appendPlainText("--- updating Setup Tool ---")
+        chain = selfupdate.CommandChain(selfupdate.update_commands(self._repo_root), self)
+        chain.output.connect(self._append_log)
+        chain.finished.connect(self._on_updated)
+        self._update_chain = chain
+        chain.start()
+
+    def _on_updated(self, ok: bool, output: str) -> None:
+        self._update_chain = None
+        if ok:
+            self._log.appendPlainText("--- updated, restarting ---")
+            # Same interpreter and launcher as this run, so a source checkout
+            # restarts from the checkout and an install from /usr/bin.
+            QProcess.startDetached(sys.executable, [os.path.abspath(sys.argv[0]), *sys.argv[1:]])
+            self.close()
+            return
+        self._log.appendPlainText("--- update failed ---")
+        self._run_btn.setEnabled(True)
+        self._set_update_enabled(True)
+        box = QMessageBox(self)
+        box.setWindowTitle("Update failed")
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setText("Setup Tool couldn't update itself. Nothing was changed - the Output panel has the details.")
         box.show()
 
     def closeEvent(self, event) -> None:

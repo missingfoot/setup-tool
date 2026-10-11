@@ -82,7 +82,20 @@ partial `-Sy`, so they also upgrade the system.
 
 Or build it like any of the other personal apps here: `makepkg -si`.
 
-## Updating (after editing setup-tool's own code)
+## Updating Setup Tool itself
+
+On start, Setup Tool checks GitHub in the background and shows a bar above
+the list when a newer version exists; **Update Setup Tool** in the toolbar
+checks on demand. Updating clones the repo, runs `makepkg`, installs it with
+one password prompt and restarts the app. Run from a source checkout, it
+does a `git pull --ff-only` instead.
+
+Since `pkgver` never changes, "newer" means a different commit: the PKGBUILD
+writes the commit it was built from to `/usr/share/setup-tool/commit`, which
+is compared with GitHub's `HEAD`. A checkout instead counts how many commits
+it's behind its upstream, so unpushed local commits never look like updates.
+
+## Updating by hand (after editing setup-tool's own code)
 
 If you just want to try a change, `./setup-tool` runs straight from this
 source checkout - no build step needed, since it's plain Python.

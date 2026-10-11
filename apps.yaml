@@ -501,6 +501,16 @@
   method: pkgbuild
   git: https://github.com/missingfoot/figmux.git
 
+- id: taildrop-send
+  name: Taildrop Send
+  category: My Apps
+  description: Dolphin right-click "Send via Taildrop…" to send files to your Tailscale devices
+  method: pkgbuild
+  git: https://github.com/missingfoot/taildrop-send.git
+  next_steps: |
+    # Needs Tailscale's operator set to you (the Tailscale entry's `tailscale up --operator=$USER` does it)
+    kbuildsycoca6          # or restart Dolphin, to show the menu entry
+
 - id: mi-gaming-box
   name: Mi Gaming Box
   category: My Apps

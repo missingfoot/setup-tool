@@ -52,3 +52,18 @@ def test_repo_infos_one_call_for_many_skips_unknown():
     infos = repo_infos(["pacman", "bash", "nope-xyz"])
     assert set(infos) == {"pacman", "bash"}
     assert infos["bash"]["Name"] == "bash" and "Version" in infos["bash"]
+
+
+def test_setup_steps_described():
+    from setuptoollib.manifest import Login, RootCommand
+
+    app = AppEntry(
+        id="t", name="T", category="C", description="", method="pacman", package="t",
+        root_commands=(RootCommand("tailscale set --operator={user}", "check <op>"),),
+        user_services=("taildrop.service",),
+        login=Login("tailscale status", "tailscale login"),
+    )
+    html = details_html(app, REPO_ROOT, {"t": "extra"})
+    assert "tailscale set --operator={user}" in html and "check &lt;op&gt;" in html
+    assert "systemctl --user enable --now" in html and "taildrop.service" in html
+    assert "tailscale login" in html

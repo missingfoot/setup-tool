@@ -7,6 +7,26 @@ import yaml
 
 
 @dataclass(frozen=True)
+class RootCommand:
+    """Run as root in the run's one password prompt, after services start.
+    `{user}` becomes the user's name. `unless` is a check run as the user
+    first: if it succeeds the command is already done and skipped."""
+
+    run: str
+    unless: str | None = None
+
+
+@dataclass(frozen=True)
+class Login:
+    """A sign-in run as the user at the end of the run, when `check` fails.
+    The first https:// link `run` prints is opened in the browser, and the
+    run waits for it to finish."""
+
+    check: str
+    run: str
+
+
+@dataclass(frozen=True)
 class AppEntry:
     id: str
     name: str
@@ -22,6 +42,9 @@ class AppEntry:
     fallback: str | None = None  # pacman: bundled PKGBUILD dir used when no sync repo has `package`
     script: str | None = None  # script: URL of the vendor's own installer, run as the user
     creates: str | None = None  # script: file the installer creates (~ allowed) - there means installed
+    root_commands: tuple[RootCommand, ...] = ()  # extra root setup, in the same password prompt
+    user_services: tuple[str, ...] = ()  # systemd --user units to `enable --now`, as the user
+    login: Login | None = None  # sign-in at the end of the run, opened in the browser
 
     def __post_init__(self) -> None:
         if self.method not in ("pacman", "pkgbuild", "script"):
@@ -63,6 +86,9 @@ def load_apps(manifest_path: Path) -> list[AppEntry]:
             **entry,
             "services": tuple(entry.get("services") or ()),
             "extras": tuple(entry.get("extras") or ()),
+            "root_commands": tuple(RootCommand(**c) for c in entry.get("root_commands") or ()),
+            "user_services": tuple(entry.get("user_services") or ()),
+            "login": Login(**entry["login"]) if entry.get("login") else None,
         })
         for entry in data
     ]

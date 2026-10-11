@@ -27,8 +27,21 @@
 #                downloaded and run as you (never root)
 #   creates:     script method only - a file the installer creates (~ is
 #                allowed); while it exists the app counts as installed
+#   root_commands: optional - extra setup run as root in the run's one
+#                password prompt, after services start. Each has `run` and
+#                optionally `unless`: a check run as you first - when it
+#                succeeds the step is already done and skipped. `{user}`
+#                becomes your username in both.
+#   user_services: optional - `systemctl --user` units to enable --now, as
+#                you, after the privileged step
+#   login:       optional - a sign-in at the end of the run, when `check`
+#                fails: `run` is started as you, the first https:// link it
+#                prints opens in your browser, and the run waits for it
 #   next_steps:  optional - manual follow-up (logins etc.) shown after a
 #                successful run, for things the tool can't do for you
+#
+# Apps sharing setup (e.g. Tailscale and Taildrop) reuse it with YAML
+# anchors (&name / *name); shared steps only ever run once per run.
 
 - id: sublime-text-4
   name: Sublime Text 4
@@ -189,24 +202,16 @@
   description: Mesh VPN that connects your devices (CLI + daemon, no GUI)
   method: pacman
   package: tailscale
-  services: [tailscaled.service]
-  next_steps: |
-    sudo tailscale up --operator=$USER   # prints a link - open it to log in
-    # Taildrop: received files otherwise sit in tailscaled's state dir until
-    # fetched - this user service saves them straight into ~/Downloads.
-    mkdir -p ~/.config/systemd/user
-    echo '[Unit]
-    Description=Save Taildrop files to ~/Downloads
-    After=network-online.target
-
-    [Service]
-    ExecStart=/usr/bin/tailscale file get --loop --conflict=rename %h/Downloads
-    Restart=always
-    RestartSec=10
-
-    [Install]
-    WantedBy=default.target' > ~/.config/systemd/user/taildrop.service
-    systemctl --user enable --now taildrop.service
+  services: &tailscaled [tailscaled.service]
+  # Makes you Tailscale's operator, so `tailscale login`, `file cp` and
+  # `file get` work without sudo.
+  root_commands: &tailscale-operator
+    - run: tailscale set --operator={user}
+      unless: |-
+        tailscale debug prefs 2>/dev/null | grep -q '"OperatorUser": "{user}"'
+  login: &tailscale-login
+    check: tailscale status --peers=false
+    run: tailscale login
 
 - id: mullvad-vpn
   name: Mullvad VPN
@@ -502,14 +507,16 @@
   git: https://github.com/missingfoot/figmux.git
 
 - id: taildrop-send
-  name: Taildrop Send
+  name: Taildrop
   category: My Apps
-  description: Dolphin right-click "Send via Taildrop…" to send files to your Tailscale devices
+  description: Send files from Dolphin's right-click menu; files sent to you land in ~/Downloads
   method: pkgbuild
   git: https://github.com/missingfoot/taildrop-send.git
-  next_steps: |
-    # Needs Tailscale's operator set to you (the Tailscale entry's `tailscale up --operator=$USER` does it)
-    kbuildsycoca6          # or restart Dolphin, to show the menu entry
+  # Everything Tailscale's own entry sets up, so ticking just this works.
+  services: *tailscaled
+  root_commands: *tailscale-operator
+  login: *tailscale-login
+  user_services: [taildrop.service]
 
 - id: mi-gaming-box
   name: Mi Gaming Box

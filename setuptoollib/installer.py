@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import getpass
+import re
 import shlex
 import shutil
 import subprocess
 from pathlib import Path
 
-from PySide6.QtCore import QObject, QProcess, Signal
+from PySide6.QtCore import QObject, QProcess, QTimer, Signal
 
-from .manifest import AppEntry
+from .manifest import AppEntry, Login, RootCommand
 
 BUILD_ROOT = Path.home() / ".cache" / "setup-tool" / "build"
 
@@ -69,6 +71,48 @@ def service_is_running(unit: str) -> bool:
     enabled = subprocess.run(["systemctl", "is-enabled", "--quiet", unit]).returncode == 0
     active = subprocess.run(["systemctl", "is-active", "--quiet", unit]).returncode == 0
     return enabled and active
+
+
+def user_service_is_running(unit: str) -> bool:
+    """service_is_running for a `systemctl --user` unit."""
+    enabled = subprocess.run(["systemctl", "--user", "is-enabled", "--quiet", unit]).returncode == 0
+    active = subprocess.run(["systemctl", "--user", "is-active", "--quiet", unit]).returncode == 0
+    return enabled and active
+
+
+_USERNAME = re.compile(r"[a-z_][a-z0-9_-]*\$?")
+
+
+def fill_user(text: str) -> str:
+    """Substitute `{user}` with the user's name. It lands unquoted in shell
+    commands, so anything but a plain Linux username is refused."""
+    user = getpass.getuser()
+    if not _USERNAME.fullmatch(user):
+        raise ValueError(f"unexpected username {user!r}")
+    return text.replace("{user}", user)
+
+
+def root_command_done(command: RootCommand) -> bool:
+    """True when the command's `unless` check passes (run as the user)."""
+    if not command.unless:
+        return False
+    return subprocess.run(["bash", "-c", fill_user(command.unless)], capture_output=True).returncode == 0
+
+
+def login_done(login: Login) -> bool:
+    return subprocess.run(["bash", "-c", fill_user(login.check)], capture_output=True).returncode == 0
+
+
+_URL = re.compile(r"https://\S+")
+
+
+def find_url(text: str) -> str | None:
+    match = _URL.search(text)
+    return match.group(0) if match else None
+
+
+def open_url(url: str) -> None:
+    QProcess.startDetached("xdg-open", [url])
 
 
 def pkgbuild_target_version(build_dir: Path) -> str:
@@ -218,7 +262,11 @@ def build_deps_script(pacman_installs: list[str], build_deps: list[str]) -> str:
 
 
 def privileged_script(
-    pkg_files: list[Path], pacman_installs: list[str], services: list[str] = (), extras: list[str] = ()
+    pkg_files: list[Path],
+    pacman_installs: list[str],
+    services: list[str] = (),
+    extras: list[str] = (),
+    root_commands: list[RootCommand] = (),
 ) -> str:
     """The single bash script run under pkexec for a whole run.
 
@@ -230,7 +278,8 @@ def privileged_script(
     same run keeps its explicit install reason (`--needed` skips it), and
     the rest turn into orphans once nothing optionally depends on them.
     It all runs before `-U` so freshly built packages install against the
-    upgraded libraries. Services are enabled last, once their packages exist."""
+    upgraded libraries. Services are enabled once their packages exist, and
+    apps' root_commands run last, since they may need those services up."""
     parts = []
     if pacman_installs or extras:
         names = " ".join(shlex.quote(n) for n in pacman_installs)
@@ -244,6 +293,7 @@ def privileged_script(
     if services:
         units = " ".join(shlex.quote(u) for u in services)
         parts.append(f"systemctl enable --now {units}")
+    parts.extend(fill_user(command.run) for command in root_commands)
     return " && ".join(parts)
 
 
@@ -333,8 +383,16 @@ class InstallRunner(QObject):
         self._pending_pacman_installs: list[str] = []
         self._pending_services: list[str] = []
         self._pending_extras: list[str] = []
+        self._pending_root_commands: list[RootCommand] = []
+        self._pending_user_services: list[str] = []
+        self._pending_logins: list[Login] = []
         self._to_build: list[AppEntry] = []
         self._privileged_output: list[str] = []
+        self._login_output = ""
+        self._login_url_opened = False
+        self._login_timer = QTimer(self)
+        self._login_timer.setSingleShot(True)
+        self._login_timer.timeout.connect(self._on_login_timeout)
 
     def run(self, apps: list[AppEntry]) -> None:
         self._apps = apps
@@ -346,17 +404,35 @@ class InstallRunner(QObject):
         self._to_build = []
         # Checked up front for every selected app, installed or not, so
         # re-running an already-installed app still fixes a disabled service.
-        self._pending_services = [
+        # (dict.fromkeys: apps sharing a step, e.g. Tailscale and Taildrop
+        # both needing tailscaled, get it done once.)
+        self._pending_services = list(dict.fromkeys(
             unit for app in apps for unit in app.services if not service_is_running(unit)
-        ]
+        ))
         # Likewise extras, so re-running an installed app adds any it lacks.
         self._pending_extras = list(dict.fromkeys(extra for app in apps for extra in missing_extras(app)))
+        # And the rest of each app's setup, so an already set-up machine
+        # runs nothing and never sees a password prompt.
+        self._pending_root_commands = list(dict.fromkeys(
+            command for app in apps for command in app.root_commands if not root_command_done(command)
+        ))
+        self._pending_user_services = list(dict.fromkeys(
+            unit for app in apps for unit in app.user_services if not user_service_is_running(unit)
+        ))
+        self._pending_logins = list(dict.fromkeys(
+            app.login for app in apps if app.login and not login_done(app.login)
+        ))
         self._advance_build_queue()
 
-    def _awaits_privileged_step(self, app: AppEntry) -> bool:
-        """Installed already, but a service to enable or extras to add remain."""
-        return any(unit in self._pending_services for unit in app.services) or any(
-            extra in self._pending_extras for extra in app.extras
+    def _awaits_later_steps(self, app: AppEntry) -> bool:
+        """Installed already, but some of its setup (services, extras, root
+        commands, user services, sign-in) is still to do later in the run."""
+        return (
+            any(unit in self._pending_services for unit in app.services)
+            or any(extra in self._pending_extras for extra in app.extras)
+            or any(command in self._pending_root_commands for command in app.root_commands)
+            or any(unit in self._pending_user_services for unit in app.user_services)
+            or app.login in self._pending_logins
         )
 
     def _finish_app(self, app_id: str, success: bool) -> None:
@@ -374,8 +450,8 @@ class InstallRunner(QObject):
 
         if app.method == "pacman":
             if is_installed(app):
-                if self._awaits_privileged_step(app):
-                    self.log.emit(f"[{app.id}] already installed, queued extras / service enable")
+                if self._awaits_later_steps(app):
+                    self.log.emit(f"[{app.id}] already installed, queued the rest of its setup")
                 else:
                     self.log.emit(f"[{app.id}] already installed, skipping")
                     self._finish_app(app.id, True)
@@ -431,7 +507,7 @@ class InstallRunner(QObject):
 
         if target and current == target:
             self.log.emit(f"[{app.id}] already up to date ({target}), skipping build")
-            if not self._awaits_privileged_step(app):
+            if not self._awaits_later_steps(app):
                 self._finish_app(app.id, True)
             self._advance_build_queue()
             return
@@ -492,28 +568,42 @@ class InstallRunner(QObject):
         self.log.emit(f"[{app.id}] built {pkg_path.name}, queued for install")
         self._build_next()
 
-    def _run_command(self, command: list[str], cwd: Path | None, on_finished) -> None:
+    def _run_command(self, command: list[str], cwd: Path | None, on_finished, on_output=None) -> None:
+        """Runs as the user, logging its output; `on_output` also gets each chunk."""
         self.log.emit(f"$ {' '.join(command)}")
         process = QProcess(self)
         if cwd is not None:
             process.setWorkingDirectory(str(cwd))
-        process.readyReadStandardOutput.connect(
-            lambda: self.log.emit(bytes(process.readAllStandardOutput()).decode(errors="replace").rstrip())
-        )
-        process.readyReadStandardError.connect(
-            lambda: self.log.emit(bytes(process.readAllStandardError()).decode(errors="replace").rstrip())
-        )
+
+        def forward(data: bytes) -> None:
+            text = data.decode(errors="replace")
+            self.log.emit(text.rstrip())
+            if on_output is not None:
+                on_output(text)
+
+        process.readyReadStandardOutput.connect(lambda: forward(bytes(process.readAllStandardOutput())))
+        process.readyReadStandardError.connect(lambda: forward(bytes(process.readAllStandardError())))
         process.finished.connect(lambda code, status: on_finished(command, code, status))
         self._process = process
         process.start(command[0], command[1:])
 
     def _start_privileged_phase(self) -> None:
-        if not (self._pending_pkg_files or self._pending_pacman_installs or self._pending_services or self._pending_extras):
-            self._finish_run()
+        if not (
+            self._pending_pkg_files
+            or self._pending_pacman_installs
+            or self._pending_services
+            or self._pending_extras
+            or self._pending_root_commands
+        ):
+            self._start_user_phase()
             return
 
         script = privileged_script(
-            self._pending_pkg_files, self._pending_pacman_installs, self._pending_services, self._pending_extras
+            self._pending_pkg_files,
+            self._pending_pacman_installs,
+            self._pending_services,
+            self._pending_extras,
+            self._pending_root_commands,
         )
         self.log.emit("--- one privileged step for this run ---")
         if self._pending_pacman_installs or self._pending_extras:
@@ -540,8 +630,73 @@ class InstallRunner(QObject):
         self.log.emit(text)
 
     def _on_privileged_finished(self, exit_code: int, exit_status: QProcess.ExitStatus) -> None:
-        self._privileged_step_ok(exit_code, exit_status)
-        self._finish_run()
+        if self._privileged_step_ok(exit_code, exit_status):
+            self._start_user_phase()
+        else:
+            # User services and sign-in build on what that step installs.
+            self._finish_run()
+
+    # --- after the privileged step: user services, then sign-in ----------
+
+    def _start_user_phase(self) -> None:
+        if not self._pending_user_services:
+            self._next_login()
+            return
+        units = self._pending_user_services
+        self._pending_user_services = []
+        self.log.emit("--- user services ---")
+        # Reload first: the user's systemd hasn't seen unit files the
+        # privileged step just installed.
+        self._run_command(
+            ["systemctl", "--user", "daemon-reload"],
+            cwd=None,
+            on_finished=lambda command, code, status: self._run_command(
+                ["systemctl", "--user", "enable", "--now", *units], cwd=None, on_finished=self._on_user_services_finished
+            ),
+        )
+
+    def _on_user_services_finished(self, command: list[str], exit_code: int, exit_status: QProcess.ExitStatus) -> None:
+        if exit_status != QProcess.ExitStatus.NormalExit or exit_code != 0:
+            self.log.emit(f"! command failed ({exit_code}): {' '.join(command)}")
+        self._next_login()
+
+    LOGIN_TIMEOUT_MS = 10 * 60 * 1000
+
+    def _next_login(self) -> None:
+        # Re-checked here: what the privileged step just installed may
+        # already be signed in (e.g. a reinstall keeping its state).
+        while self._pending_logins and login_done(self._pending_logins[0]):
+            self._pending_logins.pop(0)
+        if not self._pending_logins:
+            self._finish_run()
+            return
+        login = self._pending_logins.pop(0)
+        self._login_output = ""
+        self._login_url_opened = False
+        self.log.emit("--- signing in: a page opens in your browser, the run waits for you ---")
+        self._login_timer.start(self.LOGIN_TIMEOUT_MS)
+        self._run_command(
+            shlex.split(fill_user(login.run)), cwd=None, on_finished=self._on_login_finished, on_output=self._on_login_output
+        )
+
+    def _on_login_output(self, text: str) -> None:
+        self._login_output += text
+        url = find_url(self._login_output)
+        if url and not self._login_url_opened:
+            self._login_url_opened = True
+            self.log.emit(f"Opening {url} - sign in there to continue.")
+            open_url(url)
+
+    def _on_login_timeout(self) -> None:
+        self.log.emit("! sign-in wasn't finished in 10 minutes - run again to retry")
+        if self._process is not None:
+            self._process.kill()
+
+    def _on_login_finished(self, command: list[str], exit_code: int, exit_status: QProcess.ExitStatus) -> None:
+        self._login_timer.stop()
+        if exit_status != QProcess.ExitStatus.NormalExit or exit_code != 0:
+            self.log.emit(f"! sign-in failed ({exit_code}): {' '.join(command)}")
+        self._next_login()
 
     def _privileged_step_ok(self, exit_code: int, exit_status: QProcess.ExitStatus) -> bool:
         """Logs the outcome, surfaces any failure hint / reboot notice."""
@@ -561,6 +716,12 @@ class InstallRunner(QObject):
 
     def _final_status(self, app: AppEntry) -> bool:
         if not all(service_is_running(unit) for unit in app.services):
+            return False
+        if not all(root_command_done(command) for command in app.root_commands if command.unless):
+            return False
+        if not all(user_service_is_running(unit) for unit in app.user_services):
+            return False
+        if app.login and not login_done(app.login):
             return False
         if missing_extras(app):
             return False

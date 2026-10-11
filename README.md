@@ -70,6 +70,18 @@ up by hand:
    (`pacman -Syu --needed`), built packages (`pacman -U`) and services
    (`systemctl enable --now`).
 
+   Apps' `root_commands` (e.g. making you Tailscale's operator) run at
+   the end of this same step.
+5. **Your setup, unprivileged.** `user_services` are enabled with
+   `systemctl --user`, then any `login` whose check fails runs: the sign-in
+   link it prints opens in your browser and the run waits (up to 10
+   minutes) for you to finish.
+
+Every step checks first and skips what's already done - services running,
+operator set, already signed in - so on a machine that's already set up a
+run changes nothing and asks for no password. Steps apps share (Tailscale
+and Taildrop both need `tailscaled`) run once.
+
 So a run asks for your password once — twice at most, on a fresh machine
 that's missing build dependencies. Repo installs always use `-Syu`, never a
 partial `-Sy`, so they also upgrade the system.

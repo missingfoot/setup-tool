@@ -129,6 +129,17 @@ def details_html(
     if app.services:
         units = ", ".join(_code(u) for u in app.services)
         parts.append(f"<li>Enables and starts {units} ({_code('systemctl enable --now')}).</li>")
+    for command in app.root_commands:
+        skip = f" Skipped when {_code(command.unless)} succeeds." if command.unless else ""
+        parts.append(f"<li>Runs {_code(command.run)} as root, in the same password prompt.{skip}</li>")
+    if app.user_services:
+        units = ", ".join(_code(u) for u in app.user_services)
+        parts.append(f"<li>Enables and starts {units} for your user ({_code('systemctl --user enable --now')}).</li>")
+    if app.login:
+        parts.append(
+            f"<li>Signs you in with {_code(app.login.run)}: its sign-in page opens in your browser "
+            f"and the run waits for you. Skipped when {_code(app.login.check)} succeeds.</li>"
+        )
     parts.append("</ul>")
 
     rows = "".join(f"<tr><td><b>{k}</b>&nbsp;&nbsp;</td><td>{v}</td></tr>" for k, v in facts)

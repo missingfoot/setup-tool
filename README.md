@@ -127,6 +127,23 @@ a real upgrade rather than a same-version reinstall). `pacman -U` needs an
 absolute or `./`-relative path since it's run through `pkexec`, which
 doesn't share your shell's `cwd` assumptions the way plain `sudo` does.
 
+## Ubuntu, Zorin, Mint and other apt distros
+
+`apt/setup-apt` is a terminal version of the same app list for Ubuntu-based
+distros (24.04+). Each app comes from the most official source there: the
+vendor's apt repo or .deb, the project's PPA, Ubuntu's repos, then Flathub.
+Ghostty, Helium and the My Apps PKGBUILDs aren't covered.
+
+```
+curl -fsSLO https://raw.githubusercontent.com/missingfoot/setup-tool/main/apt/setup-apt
+chmod +x setup-apt
+./setup-apt              # checklist
+./setup-apt --list       # app IDs, for ./setup-apt ID...
+```
+
+Unlike `apps.yaml`, its list lives in the script itself (`APPS` plus one
+`plan_<id>` function per app), so adding an app there means editing both.
+
 ## Tests
 
 ```

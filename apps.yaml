@@ -203,15 +203,20 @@
   method: pacman
   package: tailscale
   services: &tailscaled [tailscaled.service]
-  # Makes you Tailscale's operator, so `tailscale login`, `file cp` and
-  # `file get` work without sudo.
+  # Makes you Tailscale's operator, so `tailscale up`, `file cp` and
+  # `file get` work without sudo. The check re-sets the same operator as
+  # you: only the operator can, so it fails until this has run. (`debug
+  # prefs` can't be used - it leaves OperatorUser out for non-root users.)
   root_commands: &tailscale-operator
     - run: tailscale set --operator={user}
-      unless: |-
-        tailscale debug prefs 2>/dev/null | grep -q '"OperatorUser": "{user}"'
+      unless: tailscale set --operator={user}
+  # Signing in needs root even for the operator (`login`: "profiles access
+  # denied", `up`: "checkprefs access denied"). The operator is saved per
+  # profile, so the one set above is lost when signing in creates the real
+  # profile - --operator sets it again on that profile.
   login: &tailscale-login
     check: tailscale status --peers=false
-    run: tailscale login
+    run: pkexec tailscale up --operator={user}
 
 - id: mullvad-vpn
   name: Mullvad VPN
